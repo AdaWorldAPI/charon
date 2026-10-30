@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::{cell::Cell, mem::DropGuard};
+use std::cell::Cell;
 
 use macros::EnumAsGetters;
 
@@ -436,8 +436,15 @@ pub fn try_ensure_sufficient_stack<R>(f: impl FnOnce() -> R) -> Result<R, StackD
         return Err(StackDepthLimitExceeded);
     }
     STACK_DEPTH.set(depth + 1);
-    // Re-set the depth on return or unwind.
-    let _guard = DropGuard::new((), |()| STACK_DEPTH.set(depth));
+    // Re-set the depth on return or unwind. A local guard rather than `std::mem::DropGuard`
+    // (unstable `drop_guard`) keeps the library buildable on stable.
+    struct ResetDepth(usize);
+    impl Drop for ResetDepth {
+        fn drop(&mut self) {
+            STACK_DEPTH.set(self.0);
+        }
+    }
+    let _guard = ResetDepth(depth);
     Ok(stacker::maybe_grow(RED_ZONE, STACK_PER_RECURSION, f))
 }
 
